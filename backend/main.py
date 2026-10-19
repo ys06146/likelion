@@ -1,6 +1,9 @@
 import os
 import io
 import json
+import logging
+import warnings
+from threading import Lock
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -12,25 +15,28 @@ from passlib.context import CryptContext
 from sqlalchemy import create_engine, Column, Integer, String, Float, ForeignKey, Text, Boolean, inspect, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
+from sqlalchemy.exc import IntegrityError
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
-from PIL import Image
-from pydantic import BaseModel, EmailStr
+from PIL import Image, ImageOps, UnidentifiedImageError
+from pydantic import BaseModel, EmailStr, Field, field_validator
+from starlette.concurrency import run_in_threadpool
+from fastapi.staticfiles import StaticFiles
 
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
 from authlib.integrations.starlette_client import OAuth
-from dotenv import load_dotenv
 from starlette.middleware.sessions import SessionMiddleware
+from config import (
+    SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, MODEL_PATH,
+    DATABASE_URL, CORS_ORIGINS, MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, WEB_DIR, PRODUCTION,
+)
+from upload_limit import UploadLimitMiddleware
 
 # --- 1. Configuration & Security ---
-load_dotenv()
-
-SECRET_KEY = os.getenv("SECRET_KEY", "YOUR_SUPER_SECRET_KEY_FOR_ORAQ") 
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "360152998799-iud4ufqjuqb5ak9jjl44dl4pm8iki0je.apps.googleusercontent.com")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+logger = logging.getLogger("oraq")
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 
@@ -49,19 +55,22 @@ oauth.register(
 )
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-MODEL_PATH = "model_exp03b_saved"
+inference_lock = Lock()
 
 try:
     model = keras.Sequential([
-        keras.layers.TFSMLayer(MODEL_PATH, call_endpoint='serving_default')
+        keras.layers.TFSMLayer(str(MODEL_PATH), call_endpoint='serving_default')
     ])
 except Exception as e:
     print(f"Model Load Failed: {e}")
     model = None
 
 # --- 3. Database Configuration ---
-DATABASE_URL = "sqlite:///./oraq_app.db"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    pool_pre_ping=True,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -158,18 +167,69 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     return user
 
 # --- 5. AI Image Preprocessing ---
-MEAN, STD = np.array([0.485, 0.456, 0.406]), np.array([0.229, 0.224, 0.225])
+MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 def preprocess_image(image_bytes):
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((224, 224))
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(image_bytes)) as source:
+                if source.format not in {"JPEG", "PNG", "WEBP"}:
+                    raise HTTPException(status_code=415, detail="Choose a JPEG, PNG or WebP image.")
+                if source.width * source.height > MAX_IMAGE_PIXELS:
+                    raise HTTPException(status_code=413, detail="Image exceeds the 20 megapixel limit.")
+                source.load()
+                img = ImageOps.exif_transpose(source).convert("RGB").resize((224, 224))
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning):
+        raise HTTPException(status_code=413, detail="Image exceeds the 20 megapixel limit.")
+    except (UnidentifiedImageError, OSError, ValueError):
+        raise HTTPException(status_code=400, detail="The file is not a readable image.")
     x = np.array(img).astype(np.float32) / 255.0
     x = (x - MEAN) / STD
     return np.expand_dims(x, axis=0)
 
+def infer_probability(contents):
+    if model is None:
+        raise HTTPException(status_code=503, detail="Image analysis is temporarily unavailable. Please try again later.")
+    x = preprocess_image(contents)
+    try:
+        with inference_lock:
+            predictions = model.predict(x, verbose=0)
+        output = next(iter(predictions.values())) if isinstance(predictions, dict) else predictions
+        values = np.asarray(output).flatten()
+        if values.size != 1 or not np.isfinite(values[0]) or not 0 <= values[0] <= 1:
+            raise ValueError("Expected one finite probability.")
+        return float(values[0])
+    except Exception:
+        logger.exception("Model inference failed")
+        raise HTTPException(status_code=503, detail="Image analysis is temporarily unavailable. Please try again later.")
+
+ANALYSIS_SCOPE = "Image-level model score only; individual teeth, gums and plaque are not assessed."
+GENERAL_GUIDANCE = [
+    "This experimental score is not a medical diagnosis.",
+    "Consult a dental professional about symptoms or concerns, regardless of the score.",
+]
+
 # --- 6. Pydantic Schemas ---
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str
-    full_name: str
+    password: str = Field(min_length=8)
+    full_name: str = Field(min_length=1, max_length=100)
+
+    @field_validator("password")
+    @classmethod
+    def password_length(cls, value):
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 UTF-8 bytes.")
+        return value
+
+    @field_validator("full_name")
+    @classmethod
+    def name_not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Name is required.")
+        return value.strip()
 
 class Token(BaseModel):
     access_token: str
@@ -204,8 +264,8 @@ def user_to_profile_out(user: User) -> UserProfileOut:
 
 
 class UserUpdate(BaseModel):
-    full_name: Optional[str] = None
-    age: Optional[int] = None
+    full_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    age: Optional[int] = Field(default=None, ge=1, le=120)
     gender: Optional[str] = None
     blood_type: Optional[str] = None
     smoker: Optional[bool] = None
@@ -213,19 +273,31 @@ class UserUpdate(BaseModel):
 
 class GoogleMobileLoginRequest(BaseModel):
     id_token: str
-    email: EmailStr
+    email: Optional[EmailStr] = None
     display_name: Optional[str] = None
 
 # --- 7. API Setup ---
 app = FastAPI(title="OraQ Oral Health AI API")
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, https_only=PRODUCTION)
+app.add_middleware(UploadLimitMiddleware, max_bytes=MAX_IMAGE_BYTES + 64 * 1024)
+app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_methods=["GET", "POST", "PATCH", "DELETE"], allow_headers=["Authorization", "Content-Type"])
+
+@app.get("/health")
+def health():
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception:
+        raise HTTPException(status_code=503, detail="Database unavailable.")
+    if model is None:
+        raise HTTPException(status_code=503, detail="Model unavailable.")
+    return {"status": "ok", "model_loaded": True}
 
 # --- 8. API Endpoints ---
 
 # [AUTH] Signup
 @app.post("/auth/signup")
-async def signup(user_in: UserCreate, db: Session = Depends(get_db)):
+def signup(user_in: UserCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == user_in.email).first():
         raise HTTPException(status_code=400, detail="Email already registered.")
     new_user = User(
@@ -234,15 +306,23 @@ async def signup(user_in: UserCreate, db: Session = Depends(get_db)):
         full_name=user_in.full_name
     )
     db.add(new_user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Email already registered.")
     return {"message": "Signup successful"}
 
 # [AUTH] Login
 @app.post("/auth/login", response_model=LoginTokenResponse)
 async def login(request: Request, db: Session = Depends(get_db)):
     email, password = await extract_login_credentials(request)
+    if not isinstance(email, str) or not isinstance(password, str):
+        raise HTTPException(status_code=400, detail="Email and password must be text.")
     user = db.query(User).filter(User.email == email).first()
-    if not user or not user.hashed_password or not pwd_context.verify(password, user.hashed_password):
+    if len(password.encode("utf-8")) > 72:
+        raise HTTPException(status_code=400, detail="Incorrect email or password.")
+    if not user or not user.hashed_password or not await run_in_threadpool(pwd_context.verify, password, user.hashed_password):
         raise HTTPException(status_code=400, detail="Incorrect email or password.")
     db.refresh(user)
     access_token = create_access_token(data={"sub": user.email})
@@ -256,6 +336,8 @@ async def login(request: Request, db: Session = Depends(get_db)):
 # [GOOGLE AUTH] Google Login
 @app.get("/auth/google/login")
 async def google_login(request: Request):
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(status_code=503, detail="Google login is not configured.")
     redirect_uri = request.url_for('google_auth') 
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
@@ -267,7 +349,9 @@ async def google_auth(request: Request, db: Session = Depends(get_db)):
     except Exception:
         raise HTTPException(status_code=400, detail="Google authentication failed")
     
-    user_info = token.get('userinfo')
+    user_info = token.get('userinfo') or {}
+    if not user_info.get("email") or not user_info.get("email_verified"):
+        raise HTTPException(status_code=401, detail="A verified Google email is required.")
     email = user_info['email']
 
     user = db.query(User).filter(User.email == email).first()
@@ -287,19 +371,21 @@ async def google_auth(request: Request, db: Session = Depends(get_db)):
 @app.post("/auth/google/mobile", response_model=LoginTokenResponse)
 async def google_mobile_login(payload: GoogleMobileLoginRequest, db: Session = Depends(get_db)):
     if not GOOGLE_CLIENT_ID:
-        raise HTTPException(status_code=500, detail="Google login is not configured.")
+        raise HTTPException(status_code=503, detail="Google login is not configured.")
 
     try:
-        idinfo = google_id_token.verify_oauth2_token(
+        idinfo = await run_in_threadpool(google_id_token.verify_oauth2_token,
             payload.id_token,
             google_requests.Request(),
             audience=GOOGLE_CLIENT_ID,
         )
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid Google ID token")
+    except Exception:
+        raise HTTPException(status_code=503, detail="Google verification is temporarily unavailable.")
 
     token_email = idinfo.get("email")
-    if not token_email or token_email.lower() != payload.email.lower():
+    if not token_email or (payload.email and token_email.lower() != payload.email.lower()):
         raise HTTPException(status_code=400, detail="Email mismatch between token and request")
 
     if not idinfo.get("email_verified", False):
@@ -328,25 +414,18 @@ async def google_mobile_login(payload: GoogleMobileLoginRequest, db: Session = D
 # 1. AI Diagnosis (predictRisk)
 @app.post("/scans/predict")
 async def predict_risk(image: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if model is None:
-        raise HTTPException(status_code=500, detail="AI Model not loaded on server.")
-    
-    contents = await image.read()
-    x = preprocess_image(contents)
-    predictions = model.predict(x, verbose=0)
-
-    if isinstance(predictions, dict):
-        output_key = list(predictions.keys())[0]
-        p = float(np.array(predictions[output_key]).flatten()[0])
-    else:
-        p = float(predictions.flatten()[0])
+    contents = await image.read(MAX_IMAGE_BYTES + 1)
+    await image.close()
+    if len(contents) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Image upload exceeds the 10 MB limit.")
+    p = await run_in_threadpool(infer_probability, contents)
 
     prob_percent = round(p * 100, 2)
     level = "Risk" if p >= 0.7 else ("Caution" if p >= 0.3 else "Normal")
-    summary = f"{level} Detected"
+    summary = f"{level} model score"
     
-    details_data = {"teeth": "Needs Check" if p > 0.5 else "Normal", "gums": "Healthy", "plaque": "Moderate"}
-    recs_data = ["Brush thoroughly", "Visit dentist if pain persists"]
+    details_data = {}
+    recs_data = GENERAL_GUIDANCE
 
     new_scan = Scan(
         owner_id=current_user.id,
@@ -360,7 +439,7 @@ async def predict_risk(image: UploadFile = File(...), current_user: User = Depen
     db.add(new_scan)
     db.commit()
     
-    return {"prob_percent": prob_percent, "level": level, "summary": summary, "details": details_data, "recommendations": recs_data}
+    return {"scan_id": new_scan.id, "prob_percent": prob_percent, "level": level, "summary": summary, "details": details_data, "recommendations": recs_data, "assessment_scope": ANALYSIS_SCOPE}
 
 # 2. History Lookup (getHistory)
 @app.get("/scans/history")
@@ -375,7 +454,8 @@ async def get_scan_detail(scan_id: int, current_user: User = Depends(get_current
     scan = db.query(Scan).filter(Scan.id == scan_id, Scan.owner_id == current_user.id).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
-    return {"probability": scan.prob_percent, "status_labels": scan.level, "details": json.loads(scan.details), "advice_list": json.loads(scan.recommendations)}
+    # Legacy records contain fabricated per-tooth/gum/plaque findings. Never return them.
+    return {"scan_id": scan.id, "probability": scan.prob_percent, "status_labels": scan.level, "details": {}, "advice_list": GENERAL_GUIDANCE, "assessment_scope": ANALYSIS_SCOPE}
 
 # 4. Delete Record (deleteScan)
 @app.delete("/scans/delete/{scan_id}")
@@ -413,3 +493,6 @@ async def update_profile(user_update: UserUpdate, current_user: User = Depends(g
     db.commit()
     db.refresh(current_user)
     return {"message": "Profile updated"}
+
+if WEB_DIR is not None:
+    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")

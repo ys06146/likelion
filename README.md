@@ -1,119 +1,81 @@
-# 🦷 OraQ - Oral Health AI Diagnosis App
+# OraQ — web-first oral photo prototype
 
-<div align="center">
-  <img src="https://img.shields.io/badge/Flutter-02569B?style=flat-square&logo=flutter&logoColor=white"/>
-  <img src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white"/>
-  <img src="https://img.shields.io/badge/TensorFlow-FF6F00?style=flat-square&logo=tensorflow&logoColor=white"/>
-  <img src="https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white"/>
-</div>
+Flutter web + FastAPI + the bundled TensorFlow SavedModel. Create an account, upload a photo, view an image-level model score, revisit/compare/delete saved scans and edit your profile.
 
-## 📌 Project Overview
-**OraQ** is an intelligent application providing smart oral health guides by analyzing users' dental photos to predict risk levels (Risk / Caution / Normal).
+This experimental model is not a validated medical diagnosis. It does not detect individual teeth, gum health or plaque. Hard-coded findings and tooth highlights have been removed. A low score does not rule out a dental problem. Model accuracy requires separate validation using representative, consented data.
 
-Developed as part of the Likelion project, it features a cross-platform client built with Flutter and a powerful, reliable AI diagnosis backend powered by FastAPI and TensorFlow.
+## Run locally
 
----
+Tested: Flutter 3.41.4 / Dart 3.11.1, Python 3.11. From the repository root:
 
-## 🏗 System Architecture
-
-The overarching system architecture diagram for the OraQ project.
-
-```mermaid
-graph TD
-    classDef frontend fill:#E3F2FD,stroke:#1565C0,stroke-width:2px;
-    classDef backend fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px;
-    classDef ai fill:#FFF3E0,stroke:#EF6C00,stroke-width:2px;
-    classDef db fill:#FCE4EC,stroke:#C2185B,stroke-width:2px;
-    classDef auth fill:#F3E5F5,stroke:#4A148C,stroke-width:2px;
-
-    %% Client Side
-    subgraph Client ["Client (oral_health_ai - Flutter)"]
-        UI_Auth["Login / Signup UI"]:::frontend
-        UI_Profile["Profile Settings UI"]:::frontend
-        UI_Scan["Oral Photo Upload UI"]:::frontend
-        UI_History["Analysis History & Report UI"]:::frontend
-    end
-
-    %% External Auth
-    GoogleAuth["Google OAuth 2.0 Provider"]:::auth
-
-    %% Server Side
-    subgraph Backend ["Backend API (FastAPI)"]
-        Router_Auth["Auth Router (/auth)"]:::backend
-        Router_User["User Router (/users)"]:::backend
-        Router_Scan["Scan Router (/scans)"]:::backend
-        
-        JWT["JWT Authentication"]:::backend
-        Preprocess["Image Preprocessor (224x224 Resize & Norm)"]:::backend
-    end
-
-    %% TF Model
-    subgraph AIModel ["AI Inference Engine"]
-        TF["TensorFlow Keras Model (model_exp03b_saved)"]:::ai
-    end
-
-    %% Database
-    subgraph DB_Layer ["Database (SQLite)"]
-        T_Users["Users Table"]:::db
-        T_Scans["Scans Table"]:::db
-    end
-
-    %% Connections - Auth
-    UI_Auth -->|"1. Login/Signup Request"| Router_Auth
-    UI_Auth -.->|"Request Google Mobile Token"| GoogleAuth
-    GoogleAuth -.->|"Validate ID Token"| Router_Auth
-    Router_Auth -->|"2. Issue JWT Token"| JWT
-    Router_Auth -->|"Sync User Data"| T_Users
-    
-    %% Connections - Application Flow
-    UI_Profile -->|"Update Profile (Age, Gender, Smoker, etc.)"| Router_User
-    Router_User -->|"User Info CRUD"| T_Users
-    
-    UI_Scan -->|"API Auth Token + Multi-part Image"| Router_Scan
-    Router_Scan -->|"Extract Image Bytes"| Preprocess
-    Preprocess -->|"Normalized Tensor Array"| TF
-    TF -->|"Return Risk Probability"| Router_Scan
-    Router_Scan -->|"Save Diagnosis Report & Guide"| T_Scans
-    
-    UI_History -->|"Fetch Previous Scans"| Router_Scan
-    Router_Scan -->|"Query History"| T_Scans
-    
-    T_Users -->|"1 : N Relationship"| T_Scans
+```sh
+python -m venv .venv
+# macOS/Linux: source .venv/bin/activate
+# PowerShell: .\.venv\Scripts\Activate.ps1
+python -m pip install -r backend/requirements.txt
+python backend/setup_env.py
+cd oral_health_ai
+flutter pub get
+flutter build web --release
+cd ..
 ```
 
----
+On Windows, use a short venv path if TensorFlow installation hits the path-length limit. Add `WEB_DIR=../oral_health_ai/build/web` to `backend/.env`, then:
 
-## 💻 Tech Stack Summary
-
-### Frontend (Application)
-*   **Framework**: Flutter (Dart)
-*   **Platforms**: Web, iOS, Android support
-
-### Backend (API Server)
-*   **Framework**: FastAPI (Python)
-*   **Auth**: JSON Web Tokens (JWT) & Google OAuth2
-*   **Database**: SQLite (`oraq_app.db`) + SQLAlchemy ORM
-*   **Deployment**: Supports Local Backend and Hugging Face Spaces porting
-
-### AI / Data Science
-*   **Model Format**: TensorFlow 2.x `SavedModel` (`model_exp03b_saved`)
-*   **Image Processing**: 224x224 RGB normalization using Pillow and Numpy operations
-
----
-
-## 📂 Repository Structure
-
-```text
-likelion/
-├── backend/                  # Local environment FastAPI backend (Main)
-│   ├── main.py               # Entry point and global API router
-│   ├── model_exp03b_saved/   # TensorFlow serving AI model directory
-│   └── oraq_app.db           # SQLite DB for Users & Scans
-├── hf_oraq_backend/          # Cloud deployment configuration for Hugging Face
-│   ├── app.py                # Ported API Server
-│   └── Dockerfile            # Containerization configuration
-├── oral_health_ai/           # Cross-platform application frontend (Flutter)
-│   ├── lib/                  # Dart UI & business logic
-│   └── pubspec.yaml          # Package configurations
-└── docs/                     # Static Web build output (for GitHub pages deployment)
+```sh
+python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000
 ```
+
+Open <http://127.0.0.1:8000>. `/health` checks the model and database; API docs are at `/docs`. The first analysis can be slower while TensorFlow warms up.
+
+For hot reload, run the API and `flutter run -d chrome --web-port 7357` inside `oral_health_ai`. The client uses port 8000 locally. Select another API with `--dart-define=API_BASE_URL=https://your-api.example`. Requests time out after 25 seconds (90 seconds for analysis).
+
+## Configuration and persistent data
+
+See `backend/.env.example`. `setup_env.py` generates a random signing secret once and never overwrites existing configuration. Missing/placeholder secrets prevent startup. Keep `.env` private and the secret stable across restarts; rotating it invalidates sessions.
+
+Relative paths resolve from `backend/`, independent of the shell working directory. Development uses the existing `backend/oraq_app.db`. Production requires `DATA_DIR` on a persistent mount or `DATABASE_URL`. PostgreSQL URLs use `postgresql+psycopg://...`; PostgreSQL integration is not tested and existing PostgreSQL schemas require separately managed migrations.
+
+To retain existing SQLite accounts/scans, stop the old API, back up its database and copy it into the new persistent directory before startup. Empty volumes do not automatically inherit the old database. Back up the volume regularly; `docker compose down -v` deletes its data.
+
+## Container deployment
+
+Build Flutter web and create `backend/.env` as above, then:
+
+```sh
+docker compose up --build -d
+docker compose logs -f oraq
+```
+
+The container serves API and web UI on port 8000, persists SQLite in the `oraq-data` volume and runs one worker to avoid duplicating the TensorFlow model. Compose binds to loopback. For public hosting, configure an HTTPS reverse proxy with request/rate limits. The image honors `PORT` (e.g. 7860 on Hugging Face); the host must mount persistent storage at `/data` or supply a database URL. Docker validation is included in CI; local execution needs Docker installed.
+
+## GitHub Pages with a separate API
+
+Pages hosts only the frontend. Deploy the updated API with durable storage first, then:
+
+```sh
+cd oral_health_ai
+flutter build web --release --base-href /likelion/ --dart-define=API_BASE_URL=https://YOUR-API-HOST
+```
+
+Publish `build/web` through Pages. Set backend `CORS_ORIGINS=https://ys06146.github.io` (origin only, no path). A non-local build without `API_BASE_URL` calls its own origin; do not publish that build on Pages. Tracked `docs/` remains the previous published build until the production backend is ready. CI uploads a same-origin artifact and does not auto-deploy.
+
+## Optional Google sign-in
+
+Email/password works without Google credentials. The Google button is hidden unless the build receives `--dart-define=GOOGLE_CLIENT_ID=...`; set the same ID on the backend. Register the exact origin and redirect URI (including `/likelion/` on Pages) in the Google OAuth web client. The popup checks state, nonce, origin and source, and handles cancellation/timeouts. The API verifies Google's signed token. Never embed a client secret in Flutter. `GOOGLE_CLIENT_SECRET` is only needed for the separate backend redirect flow. Real-provider sign-in still needs testing with the deployment's registration. Native Google sign-in is not implemented.
+
+## Tests
+
+```sh
+python -m unittest discover -s backend/tests -v
+cd oral_health_ai
+flutter analyze
+flutter test
+flutter build web --release
+```
+
+Backend tests isolate storage and exercise the real model with a synthetic image. Coverage includes image/body limits, invalid model output, authorization/ownership, reopening a DB connection, profile validation, Google verification mocks, CORS and startup configuration. Flutter tests cover small screens, long history, comparison, expired/offline sessions, profile cache consistency, upload limits, timeouts, decimal scores and OAuth response correlation.
+
+Uploads accept JPEG, PNG or WebP up to 10 MiB and 20 megapixels. The server checks decoded bytes; failed analyses do not create records. Photo bytes are not saved by this application. Profile data and scores are stored. Before public launch, provide actual privacy/retention policies and validate the model; the prototype does not invent a terms agreement.
+
+Android/iOS sources remain, but device permissions, native packaging and store readiness are outside this web-first verification.

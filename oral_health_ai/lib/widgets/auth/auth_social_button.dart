@@ -36,12 +36,15 @@ class AuthSocialButton extends StatelessWidget {
               ),
             ),
             SizedBox(width: 10),
-            Text(
-              text,
-              style: const TextStyle(
-                color: Colors.black,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
+            Flexible(
+              child: Text(
+                text,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
           ],

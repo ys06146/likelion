@@ -1,12 +1,4 @@
-typedef GoogleCredentialCallback = void Function(String idToken);
+import 'api_client.dart';
 
-void initGoogleSignInWeb({
-  required String clientId,
-  required GoogleCredentialCallback onCredential,
-}) {
-  throw UnsupportedError('Google Sign-In web is only available on web.');
-}
-
-void triggerGoogleSignIn({required String clientId}) {
-  throw UnsupportedError('Google Sign-In web is only available on web.');
-}
+Future<String> signInWithGoogle({required String clientId}) async =>
+    throw const ApiException('Google sign-in is available in the web app.');

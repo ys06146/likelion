@@ -20,7 +20,7 @@ class ScanResultData {
       probability: (json['prob_percent'] as num?)?.toDouble() ?? 0,
       riskLevel: ScanItem.fromApiLabel(json['level']?.toString()),
       summary: json['summary']?.toString() ?? '',
-      details: _readDetails(json['details']),
+      details: const {},
       recommendations: _readRecommendations(json['recommendations']),
     );
   }
@@ -30,21 +30,9 @@ class ScanResultData {
       probability: (json['probability'] as num?)?.toDouble() ?? 0,
       riskLevel: ScanItem.fromApiLabel(json['status_labels']?.toString()),
       summary: json['status_labels']?.toString() ?? '',
-      details: _readDetails(json['details']),
+      details: const {},
       recommendations: _readRecommendations(json['advice_list']),
     );
-  }
-
-  static Map<String, String> _readDetails(dynamic rawDetails) {
-    if (rawDetails is Map<String, dynamic>) {
-      return rawDetails.map((key, value) => MapEntry(key, value.toString()));
-    }
-
-    if (rawDetails is Map) {
-      return rawDetails.map((key, value) => MapEntry(key.toString(), value.toString()));
-    }
-
-    return const {};
   }
 
   static List<String> _readRecommendations(dynamic rawRecommendations) {

@@ -18,7 +18,7 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="OraQ: experimental oral photo analysis and scan history.">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -29,10 +29,9 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>oral_health_ai</title>
+  <title>OraQ</title>
   <link rel="manifest" href="manifest.json">
 
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
   <script>
@@ -41,9 +40,12 @@
       if (window.opener && window.location.hash) {
         var params = new URLSearchParams(window.location.hash.substring(1));
         var idToken = params.get('id_token');
-        if (idToken) {
+        var state = params.get('state');
+        var error = params.get('error');
+        if (state && (idToken || error)) {
+          window.history.replaceState(null, '', window.location.pathname);
           window.opener.postMessage(
-            {type: 'google_id_token', id_token: idToken},
+            {type: 'google_id_token', id_token: idToken, state: state, error: error},
             window.location.origin
           );
           window.close();
