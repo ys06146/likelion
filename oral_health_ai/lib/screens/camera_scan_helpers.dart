@@ -15,17 +15,15 @@ RiskLevel mapScanRiskLevel(String raw) {
 
 ScanResultData scanResultFromAnalyzeMap(Map<String, dynamic> result) {
   final riskTypeString = result['riskType']?.toString() ?? 'normal';
-  final int riskPercent =
-      result['riskPercent'] is int ? result['riskPercent'] as int : 0;
+  final double riskPercent = (result['riskPercent'] as num?)?.toDouble() ?? 0;
 
-  final String summary =
-      result['message']?.toString().trim().isNotEmpty == true
-          ? result['message'].toString()
-          : riskTypeString == 'highRisk'
-              ? 'High Risk Detected'
-              : riskTypeString == 'caution'
-                  ? 'Caution'
-                  : 'Normal';
+  final String summary = result['message']?.toString().trim().isNotEmpty == true
+      ? result['message'].toString()
+      : riskTypeString == 'highRisk'
+      ? 'High Risk Detected'
+      : riskTypeString == 'caution'
+      ? 'Caution'
+      : 'Normal';
 
   final detailsRaw = result['details'];
   final recsRaw = result['recommendations'];

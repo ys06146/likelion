@@ -13,20 +13,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
 
-  String _fullName = 'Alex Johnson';
-  final TextEditingController _ageController = TextEditingController(text: '34');
-  String _gender = 'Others';
-  String _bloodType = 'O+';
+  String _fullName = '';
+  final TextEditingController _ageController = TextEditingController();
+  String _gender = 'Not set';
+  String _bloodType = 'Not set';
   bool _smoker = false;
   bool _alcohol = false;
 
   final List<String> _genderOptions = const [
+    'Not set',
     'Male',
     'Female',
     'Others',
   ];
 
   final List<String> _bloodTypeOptions = const [
+    'Not set',
     'A+',
     'A-',
     'B+',
@@ -60,10 +62,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (!mounted) return;
 
     setState(() {
-      _fullName = profile['full_name']?.toString() ?? 'Alex Johnson';
-      _ageController.text = (profile['age'] ?? 34).toString();
-      _gender = profile['gender']?.toString() ?? 'Others';
-      _bloodType = profile['blood_type']?.toString() ?? 'O+';
+      _fullName = profile['full_name']?.toString() ?? '';
+      _ageController.text = profile['age']?.toString() ?? '';
+      _gender = profile['gender']?.toString() ?? 'Not set';
+      _bloodType = profile['blood_type']?.toString() ?? 'Not set';
       _smoker = profile['smoker'] == true;
       _alcohol = profile['alcohol'] == true;
       _isLoading = false;
@@ -81,9 +83,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           controller: tempController,
           keyboardType: TextInputType.number,
           autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Enter your age',
-          ),
+          decoration: const InputDecoration(hintText: 'Enter your age'),
         ),
         actions: [
           TextButton(
@@ -175,7 +175,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _saveProfile() async {
     final age = int.tryParse(_ageController.text.trim());
 
-    if (age == null || age <= 0 || age > 120) {
+    if (_ageController.text.isNotEmpty &&
+        (age == null || age <= 0 || age > 120)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid age.')),
       );
@@ -189,8 +190,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final result = await AuthService.updateProfile(
       fullName: _fullName,
       age: age,
-      gender: _gender,
-      bloodType: _bloodType,
+      gender: _gender == 'Not set' ? null : _gender,
+      bloodType: _bloodType == 'Not set' ? null : _bloodType,
       smoker: _smoker,
       alcohol: _alcohol,
     );
@@ -244,11 +245,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _divider() {
-    return const Divider(
-      height: 1,
-      thickness: 1,
-      color: Color(0xFFEAEAF0),
-    );
+    return const Divider(height: 1, thickness: 1, color: Color(0xFFEAEAF0));
   }
 
   Widget _editableRow({
@@ -284,10 +281,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Icon(
-                  Icons.chevron_right,
-                  color: Color(0xFFBDBDC3),
-                ),
+                const Icon(Icons.chevron_right, color: Color(0xFFBDBDC3)),
               ],
             ),
           ),
@@ -322,7 +316,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Switch(
                 value: value,
                 onChanged: onChanged,
-                activeColor: const Color(0xFF0C8A8A),
+                activeThumbColor: const Color(0xFF0C8A8A),
               ),
             ],
           ),
@@ -334,7 +328,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final ageText = _ageController.text.isEmpty ? 'Not set' : _ageController.text;
+    final ageText = _ageController.text.isEmpty
+        ? 'Not set'
+        : _ageController.text;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -372,10 +368,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         decoration: const BoxDecoration(
                           shape: BoxShape.circle,
                           gradient: LinearGradient(
-                            colors: [
-                              Color(0xFF4AA8B3),
-                              Color(0xFF74D3D1),
-                            ],
+                            colors: [Color(0xFF4AA8B3), Color(0xFF74D3D1)],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
@@ -401,7 +394,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 8),
                     const Center(
                       child: Text(
-                        'Member since Jan 2026',
+                        'Your saved profile',
                         style: TextStyle(
                           fontSize: 14,
                           color: Color(0xFFB0B0B7),
@@ -463,7 +456,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       InkWell(
                         onTap: _logout,
                         child: const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 18, vertical: 22),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 22,
+                          ),
                           child: Row(
                             children: [
                               Expanded(

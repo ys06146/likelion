@@ -1,15 +1,11 @@
 import 'package:flutter/material.dart';
 import '../models/scan_item.dart';
 import '../models/scan_result_data.dart';
-import '../widgets/result/oral_map_widget.dart';
 
 class ResultDetailScreen extends StatelessWidget {
   final ScanResultData result;
 
-  const ResultDetailScreen({
-    super.key,
-    required this.result,
-  });
+  const ResultDetailScreen({super.key, required this.result});
 
   Color get _accentColor {
     switch (result.riskLevel) {
@@ -40,7 +36,7 @@ class ResultDetailScreen extends StatelessWidget {
       case RiskLevel.caution:
         return 'Caution';
       case RiskLevel.highRisk:
-        return 'High Risk Detected';
+        return 'High model score';
     }
   }
 
@@ -97,18 +93,17 @@ class ResultDetailScreen extends StatelessWidget {
                 ],
               ),
             ),
-            const Divider(
-              height: 1,
-              thickness: 1,
-              color: Color(0xFFF0F0F2),
-            ),
+            const Divider(height: 1, thickness: 1, color: Color(0xFFF0F0F2)),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
                 child: Column(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: _badgeBackground,
                         borderRadius: BorderRadius.circular(999),
@@ -116,11 +111,7 @@ class ResultDetailScreen extends StatelessWidget {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.circle,
-                            size: 8,
-                            color: _accentColor,
-                          ),
+                          Icon(Icons.circle, size: 8, color: _accentColor),
                           const SizedBox(width: 6),
                           Text(
                             _statusLabel,
@@ -135,14 +126,10 @@ class ResultDetailScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      'Tap the map to explore findings',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFFA6A6AD),
-                      ),
+                      'This model provides an image-level score. Individual teeth, gums and plaque are not assessed.',
+                      style: TextStyle(fontSize: 14, color: Color(0xFFA6A6AD)),
                     ),
                     const SizedBox(height: 16),
-                    const OralMapWidget(),
                     const SizedBox(height: 20),
                     _InfoCard(
                       child: Column(
@@ -152,10 +139,15 @@ class ResultDetailScreen extends StatelessWidget {
                             subtitle: result.summary,
                             accentColor: _accentColor,
                           ),
-                          const Divider(height: 1, thickness: 1, color: Color(0xFFEAEAF0)),
+                          const Divider(
+                            height: 1,
+                            thickness: 1,
+                            color: Color(0xFFEAEAF0),
+                          ),
                           _DetailMetricRow(
-                            label: 'Risk Level',
-                            value: '${result.probability.toStringAsFixed(result.probability % 1 == 0 ? 0 : 1)}%',
+                            label: 'Model score',
+                            value:
+                                '${result.probability.toStringAsFixed(result.probability % 1 == 0 ? 0 : 1)}%',
                             valueColor: _accentColor,
                           ),
                           ...List.generate(detailEntries.length, (index) {
@@ -163,7 +155,11 @@ class ResultDetailScreen extends StatelessWidget {
                             final isLast = index == detailEntries.length - 1;
                             return Column(
                               children: [
-                                const Divider(height: 1, thickness: 1, color: Color(0xFFEAEAF0)),
+                                const Divider(
+                                  height: 1,
+                                  thickness: 1,
+                                  color: Color(0xFFEAEAF0),
+                                ),
                                 _DetailMetricRow(
                                   label: _formatLabel(entry.key),
                                   value: entry.value,
@@ -179,7 +175,10 @@ class ResultDetailScreen extends StatelessWidget {
                     const SizedBox(height: 16),
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 14,
+                      ),
                       decoration: BoxDecoration(
                         color: _badgeBackground,
                         borderRadius: BorderRadius.circular(16),
@@ -233,7 +232,7 @@ class ResultDetailScreen extends StatelessWidget {
                     GestureDetector(
                       onTap: () => Navigator.pop(context),
                       child: const Text(
-                        'Scan Again',
+                        'Back',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w500,
@@ -264,7 +263,11 @@ class ResultDetailScreen extends StatelessWidget {
   String _formatLabel(String key) {
     return key
         .split('_')
-        .map((word) => word.isEmpty ? word : '${word[0].toUpperCase()}${word.substring(1)}')
+        .map(
+          (word) => word.isEmpty
+              ? word
+              : '${word[0].toUpperCase()}${word.substring(1)}',
+        )
         .join(' ');
   }
 }
@@ -272,9 +275,7 @@ class ResultDetailScreen extends StatelessWidget {
 class _InfoCard extends StatelessWidget {
   final Widget child;
 
-  const _InfoCard({
-    required this.child,
-  });
+  const _InfoCard({required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -313,10 +314,7 @@ class _RiskSummaryHeader extends StatelessWidget {
             margin: const EdgeInsets.only(top: 5),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(
-                color: accentColor,
-                width: 1.8,
-              ),
+              border: Border.all(color: accentColor, width: 1.8),
             ),
           ),
           const SizedBox(width: 10),
@@ -335,10 +333,7 @@ class _RiskSummaryHeader extends StatelessWidget {
                 SizedBox(height: 4),
                 Text(
                   subtitle,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFFA6A6AD),
-                  ),
+                  style: TextStyle(fontSize: 13, color: Color(0xFFA6A6AD)),
                 ),
               ],
             ),
@@ -396,10 +391,7 @@ class _PrimaryButton extends StatelessWidget {
   final String text;
   final VoidCallback onPressed;
 
-  const _PrimaryButton({
-    required this.text,
-    required this.onPressed,
-  });
+  const _PrimaryButton({required this.text, required this.onPressed});
 
   @override
   Widget build(BuildContext context) {
@@ -419,10 +411,7 @@ class _PrimaryButton extends StatelessWidget {
         ),
         child: Text(
           text,
-          style: const TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w700,
-          ),
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
         ),
       ),
     );

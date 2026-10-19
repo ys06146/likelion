@@ -35,7 +35,7 @@ class ProfileToggleTile extends StatelessWidget {
               Switch(
                 value: value,
                 onChanged: onChanged,
-                activeColor: Colors.white,
+                activeThumbColor: Colors.white,
                 activeTrackColor: const Color(0xFF0C8A8A),
                 inactiveThumbColor: Colors.white,
                 inactiveTrackColor: const Color(0xFFE0E0E5),
@@ -44,11 +44,7 @@ class ProfileToggleTile extends StatelessWidget {
           ),
         ),
         if (!isLast)
-          const Divider(
-            height: 1,
-            thickness: 1,
-            color: Color(0xFFE8E8EC),
-          ),
+          const Divider(height: 1, thickness: 1, color: Color(0xFFE8E8EC)),
       ],
     );
   }

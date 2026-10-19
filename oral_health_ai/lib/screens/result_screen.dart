@@ -6,39 +6,38 @@ import 'result_detail_screen.dart';
 class ResultScreen extends StatelessWidget {
   final ScanResultData result;
 
-  const ResultScreen({
-    super.key,
-    required this.result,
-  });
+  const ResultScreen({super.key, required this.result});
 
   _ResultConfig _getConfig() {
     switch (result.riskLevel) {
       case RiskLevel.normal:
         return _ResultConfig(
           title: result.summary.isEmpty ? 'Normal' : result.summary,
-          subtitle: 'No major concerns detected in this scan.',
+          subtitle:
+              'A low image-level model score does not rule out a dental problem.',
           accentColor: const Color(0xFF0C8A8A),
           iconBgColor: const Color(0xFFE8F2F2),
           bottomSectionTitle: 'RECOMMENDATIONS',
           details: _buildDetails(),
           steps: _buildSteps(),
-          showDisclaimer: false,
+          showDisclaimer: true,
         );
       case RiskLevel.caution:
         return _ResultConfig(
           title: result.summary.isEmpty ? 'Caution' : result.summary,
-          subtitle: 'Minor concerns were detected. Keep monitoring your oral health.',
+          subtitle: 'The model returned an intermediate image-level score.',
           accentColor: const Color(0xFFFF9500),
           iconBgColor: null,
           bottomSectionTitle: 'RECOMMENDATIONS',
           details: _buildDetails(),
           steps: _buildSteps(),
-          showDisclaimer: false,
+          showDisclaimer: true,
         );
       case RiskLevel.highRisk:
         return _ResultConfig(
-          title: result.summary.isEmpty ? 'High Risk Detected' : result.summary,
-          subtitle: 'Early detection matters. Please review the detailed report.',
+          title: result.summary.isEmpty ? 'High model score' : result.summary,
+          subtitle:
+              'The model returned a high image-level score. Review the report and consult a dental professional.',
           accentColor: const Color(0xFFFF453A),
           iconBgColor: null,
           bottomSectionTitle: 'NEXT STEPS',
@@ -62,7 +61,7 @@ class ResultScreen extends StatelessWidget {
 
     items.add(
       _DetailItem(
-        'Overall Risk',
+        'Model score',
         '${result.probability.toStringAsFixed(result.probability % 1 == 0 ? 0 : 1)}%',
         _accentColor,
       ),
@@ -82,19 +81,27 @@ class ResultScreen extends StatelessWidget {
   String _formatLabel(String key) {
     return key
         .split('_')
-        .map((word) => word.isEmpty ? word : '${word[0].toUpperCase()}${word.substring(1)}')
+        .map(
+          (word) => word.isEmpty
+              ? word
+              : '${word[0].toUpperCase()}${word.substring(1)}',
+        )
         .join(' ');
   }
 
   Color _valueColor(String value) {
     final lower = value.toLowerCase();
-    if (lower.contains('normal') || lower.contains('healthy') || lower.contains('excellent')) {
+    if (lower.contains('normal') ||
+        lower.contains('healthy') ||
+        lower.contains('excellent')) {
       return const Color(0xFF0C8A8A);
     }
     if (lower.contains('moderate') || lower.contains('caution')) {
       return const Color(0xFFFF9500);
     }
-    if (lower.contains('risk') || lower.contains('needs') || lower.contains('concern')) {
+    if (lower.contains('risk') ||
+        lower.contains('needs') ||
+        lower.contains('concern')) {
       return const Color(0xFFFF453A);
     }
     return _accentColor;
@@ -161,11 +168,7 @@ class ResultScreen extends StatelessWidget {
                 ],
               ),
             ),
-            const Divider(
-              height: 1,
-              thickness: 1,
-              color: Color(0xFFF0F0F2),
-            ),
+            const Divider(height: 1, thickness: 1, color: Color(0xFFF0F0F2)),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 22, 20, 24),
@@ -263,11 +266,7 @@ class ResultScreen extends StatelessWidget {
               color: config.iconBgColor,
               shape: BoxShape.circle,
             ),
-            child: const Icon(
-              Icons.check,
-              size: 36,
-              color: Color(0xFF0C8A8A),
-            ),
+            child: const Icon(Icons.check, size: 36, color: Color(0xFF0C8A8A)),
           ),
           const SizedBox(height: 18),
           Text(
@@ -363,9 +362,7 @@ class _DetailItem {
 class _SectionTitle extends StatelessWidget {
   final String title;
 
-  const _SectionTitle({
-    required this.title,
-  });
+  const _SectionTitle({required this.title});
 
   @override
   Widget build(BuildContext context) {
@@ -387,9 +384,7 @@ class _SectionTitle extends StatelessWidget {
 class _CardContainer extends StatelessWidget {
   final Widget child;
 
-  const _CardContainer({
-    required this.child,
-  });
+  const _CardContainer({required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -447,11 +442,7 @@ class _DetailRow extends StatelessWidget {
           ),
         ),
         if (!isLast)
-          const Divider(
-            height: 1,
-            thickness: 1,
-            color: Color(0xFFEAEAF0),
-          ),
+          const Divider(height: 1, thickness: 1, color: Color(0xFFEAEAF0)),
       ],
     );
   }
@@ -501,11 +492,7 @@ class _StepRow extends StatelessWidget {
           ),
         ),
         if (!isLast)
-          const Divider(
-            height: 1,
-            thickness: 1,
-            color: Color(0xFFEAEAF0),
-          ),
+          const Divider(height: 1, thickness: 1, color: Color(0xFFEAEAF0)),
       ],
     );
   }
@@ -515,10 +502,7 @@ class _PrimaryButton extends StatelessWidget {
   final String text;
   final VoidCallback onPressed;
 
-  const _PrimaryButton({
-    required this.text,
-    required this.onPressed,
-  });
+  const _PrimaryButton({required this.text, required this.onPressed});
 
   @override
   Widget build(BuildContext context) {
@@ -538,10 +522,7 @@ class _PrimaryButton extends StatelessWidget {
         ),
         child: Text(
           text,
-          style: const TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w700,
-          ),
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
         ),
       ),
     );

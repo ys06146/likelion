@@ -1,27 +1,39 @@
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'api_client.dart';
+
+enum SessionStatus { authenticated, anonymous, unavailable }
 
 class AuthService {
-  static const String googleClientId =
-      '360152998799-iud4ufqjuqb5ak9jjl44dl4pm8iki0je.apps.googleusercontent.com';
+  static String get baseUrl => ApiClient.baseUrl;
+  static String get googleClientId => ApiClient.googleClientId;
+  static final sessionExpired = ValueNotifier<int>(0);
+  static const _profileKeys = [
+    'profile_full_name',
+    'profile_age',
+    'profile_gender',
+    'profile_blood_type',
+    'profile_smoker',
+    'profile_alcohol',
+  ];
 
-  static String get baseUrl {
-    if (kIsWeb) {
-      return 'https://jyun45-oraq-backend.hf.space';
-    }
-
-    switch (defaultTargetPlatform) {
-      case TargetPlatform.android:
-        return 'http://10.0.2.2:8000';
-      case TargetPlatform.iOS:
-      case TargetPlatform.macOS:
-      case TargetPlatform.windows:
-      case TargetPlatform.linux:
-        return 'http://127.0.0.1:8000';
-      case TargetPlatform.fuchsia:
-        return 'http://127.0.0.1:8000';
+  static Future<Map<String, dynamic>> _result(
+    Future<Map<String, dynamic>> Function() operation,
+  ) async {
+    try {
+      return {'success': true, 'data': await operation()};
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) await logout(expired: true);
+      return {
+        'success': false,
+        'message': e.message,
+        'statusCode': e.statusCode,
+      };
+    } catch (_) {
+      return {
+        'success': false,
+        'message': 'Unable to complete the request. Please try again.',
+      };
     }
   }
 
@@ -29,349 +41,167 @@ class AuthService {
     required String email,
     required String password,
     required String fullName,
-  }) async {
-    final url = Uri.parse('$baseUrl/auth/signup');
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'accept': 'application/json',
-        },
-        body: jsonEncode({
-          'email': email,
-          'password': password,
-          'full_name': fullName,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('profile_full_name', fullName);
-
-        if (!prefs.containsKey('profile_age')) {
-          await prefs.setInt('profile_age', 34);
-        }
-        if (!prefs.containsKey('profile_gender')) {
-          await prefs.setString('profile_gender', 'Others');
-        }
-        if (!prefs.containsKey('profile_blood_type')) {
-          await prefs.setString('profile_blood_type', 'O+');
-        }
-        if (!prefs.containsKey('profile_smoker')) {
-          await prefs.setBool('profile_smoker', false);
-        }
-        if (!prefs.containsKey('profile_alcohol')) {
-          await prefs.setBool('profile_alcohol', false);
-        }
-
-        return {
-          'success': true,
-          'data': jsonDecode(response.body),
-        };
-      }
-
-      return {
-        'success': false,
-        'message': _extractMessage(response, 'Signup failed'),
-        'statusCode': response.statusCode,
-      };
-    } catch (e) {
-      return {
-        'success': false,
-        'message': 'Signup exception: $e',
-      };
-    }
-  }
+  }) => _result(
+    () => ApiClient.request(
+      'POST',
+      '/auth/signup',
+      body: {
+        'email': email.trim(),
+        'password': password,
+        'full_name': fullName.trim(),
+      },
+    ),
+  );
 
   static Future<Map<String, dynamic>> login({
     required String email,
     required String password,
-  }) async {
-    final url = Uri.parse('$baseUrl/auth/login');
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'accept': 'application/json',
-        },
-        body: jsonEncode({
-          'email': email,
-          'password': password,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
-        await _saveToken(body);
-        await applyAuthResponseBody(body);
-        return {
-          'success': true,
-          'data': body,
-        };
-      }
-
-      return {
-        'success': false,
-        'message': _extractMessage(response, 'Login failed'),
-        'statusCode': response.statusCode,
-      };
-    } catch (e) {
-      return {
-        'success': false,
-        'message': 'Login exception: $e',
-      };
-    }
-  }
+  }) => _result(() async {
+    final body = await ApiClient.request(
+      'POST',
+      '/auth/login',
+      body: {'email': email.trim(), 'password': password},
+    );
+    await _saveSession(body);
+    return body;
+  });
 
   static Future<Map<String, dynamic>> loginWithIdToken({
     required String idToken,
     String? email,
     String? displayName,
-  }) async {
-    try {
-      final body = <String, dynamic>{
-        'id_token': idToken,
-        'display_name': displayName,
-      };
+  }) => _result(() async {
+    final body = await ApiClient.request(
+      'POST',
+      '/auth/google/mobile',
+      body: {'id_token': idToken},
+    );
+    await _saveSession(body);
+    return body;
+  });
 
-      if (email != null && email.trim().isNotEmpty) {
-        body['email'] = email.trim();
-      }
-
-      final response = await http.post(
-        Uri.parse('$baseUrl/auth/google/mobile'),
-        headers: {
-          'Content-Type': 'application/json',
-          'accept': 'application/json',
-        },
-        body: jsonEncode(body),
-      );
-
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-        await _saveToken(decoded);
-        await applyAuthResponseBody(decoded);
-
-        return {
-          'success': true,
-          'data': decoded,
-        };
-      }
-
-      return {
-        'success': false,
-        'message': _extractMessage(response, 'Google login failed'),
-        'statusCode': response.statusCode,
-      };
-    } catch (e) {
-      return {
-        'success': false,
-        'message': 'Google login exception: $e',
-      };
+  static Future<void> _saveSession(Map<String, dynamic> body) async {
+    final token = body['access_token'];
+    if (token is! String || token.isEmpty) {
+      throw const ApiException('The server did not return a valid session.');
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await _clearProfile(prefs);
+    await prefs.setString('access_token', token);
+    await prefs.setString(
+      'cached_account_email',
+      body['email']?.toString() ?? '',
+    );
+    final profile = body['profile'];
+    if (profile is Map) {
+      await persistServerProfileMap(Map<String, dynamic>.from(profile));
     }
   }
 
   static Future<Map<String, dynamic>> updateProfile({
     required String fullName,
-    required int age,
-    required String gender,
-    required String bloodType,
+    required int? age,
+    required String? gender,
+    required String? bloodType,
     required bool smoker,
     required bool alcohol,
-  }) async {
+  }) => _result(() async {
+    final token = await getToken();
+    if (token == null) throw const ApiException('Please sign in again.', 401);
+    final profile = <String, dynamic>{
+      'full_name': fullName,
+      'age': age,
+      'gender': gender,
+      'blood_type': bloodType,
+      'smoker': smoker,
+      'alcohol': alcohol,
+    };
+    final response = await ApiClient.request(
+      'PATCH',
+      '/users/me',
+      token: token,
+      body: profile,
+    );
+    // Commit the local cache only after the server accepts the update.
+    await persistServerProfileMap(profile);
+    return response;
+  });
+
+  static Future<void> _clearProfile(SharedPreferences prefs) async {
+    for (final key in _profileKeys) {
+      await prefs.remove(key);
+    }
+  }
+
+  static Future<void> persistServerProfileMap(
+    Map<String, dynamic> profile,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
+    await _clearProfile(prefs);
+    for (final key in ['full_name', 'gender', 'blood_type']) {
+      final value = profile[key];
+      if (value is String && value.isNotEmpty) {
+        await prefs.setString('profile_$key', value);
+      }
+    }
+    if (profile['age'] is num) {
+      await prefs.setInt('profile_age', (profile['age'] as num).toInt());
+    }
+    for (final key in ['smoker', 'alcohol']) {
+      if (profile[key] is bool) {
+        await prefs.setBool('profile_$key', profile[key] as bool);
+      }
+    }
+  }
 
-    await prefs.setString('profile_full_name', fullName);
-    await prefs.setInt('profile_age', age);
-    await prefs.setString('profile_gender', gender);
-    await prefs.setString('profile_blood_type', bloodType);
-    await prefs.setBool('profile_smoker', smoker);
-    await prefs.setBool('profile_alcohol', alcohol);
-
+  static Future<SessionStatus> restoreSession() async {
+    final token = await getToken();
+    if (token == null) return SessionStatus.anonymous;
     try {
-      final token = prefs.getString('access_token');
-
-      if (token != null && token.isNotEmpty) {
-        final response = await http.patch(
-          Uri.parse('$baseUrl/users/me'),
-          headers: {
-            'Content-Type': 'application/json',
-            'accept': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
-          body: jsonEncode({
-            'full_name': fullName,
-            'age': age,
-            'gender': gender,
-            'blood_type': bloodType,
-            'smoker': smoker,
-            'alcohol': alcohol,
-          }),
-        );
-
-        if (response.statusCode != 200) {
-          return {
-            'success': false,
-            'message': _extractMessage(response, 'Failed to update profile'),
-            'statusCode': response.statusCode,
-          };
-        }
+      final profile = await ApiClient.request('GET', '/users/me', token: token);
+      await persistServerProfileMap(profile);
+      return SessionStatus.authenticated;
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) {
+        await logout();
+        return SessionStatus.anonymous;
       }
-
-      return {
-        'success': true,
-        'message': 'Profile updated successfully',
-      };
-    } catch (e) {
-      return {
-        'success': false,
-        'message': 'Profile update exception: $e',
-      };
-    }
-  }
-
-  static Future<void> applyAuthResponseBody(Map<String, dynamic> body) async {
-    final prefs = await SharedPreferences.getInstance();
-    final email = body['email']?.toString().trim();
-    if (email != null && email.isNotEmpty) {
-      final prev = prefs.getString('cached_account_email');
-      if (prev != null && prev != email) {
-        await _clearLocalProfileFields(prefs);
-      }
-      await prefs.setString('cached_account_email', email);
-    }
-
-    final raw = body['profile'];
-    if (raw is Map<String, dynamic>) {
-      await persistServerProfileMap(raw);
-      return;
-    }
-    if (raw is Map) {
-      await persistServerProfileMap(Map<String, dynamic>.from(raw));
-      return;
-    }
-    await refreshProfileFromServer();
-  }
-
-  static Future<void> _clearLocalProfileFields(SharedPreferences prefs) async {
-    await prefs.remove('profile_full_name');
-    await prefs.remove('profile_age');
-    await prefs.remove('profile_gender');
-    await prefs.remove('profile_blood_type');
-    await prefs.remove('profile_smoker');
-    await prefs.remove('profile_alcohol');
-  }
-
-  static Future<void> persistServerProfileMap(Map<String, dynamic> decoded) async {
-    final prefs = await SharedPreferences.getInstance();
-
-    final fn = decoded['full_name']?.toString();
-    if (fn != null && fn.isNotEmpty) {
-      await prefs.setString('profile_full_name', fn);
-    }
-
-    final ageVal = decoded['age'];
-    if (ageVal is int) {
-      await prefs.setInt('profile_age', ageVal);
-    } else if (ageVal is num) {
-      await prefs.setInt('profile_age', ageVal.round());
-    } else if (ageVal != null) {
-      final p = int.tryParse(ageVal.toString());
-      if (p != null) await prefs.setInt('profile_age', p);
-    }
-
-    final g = decoded['gender']?.toString();
-    if (g != null && g.isNotEmpty) {
-      await prefs.setString('profile_gender', g);
-    }
-
-    final bt = decoded['blood_type']?.toString();
-    if (bt != null && bt.isNotEmpty) {
-      await prefs.setString('profile_blood_type', bt);
-    }
-
-    final sm = decoded['smoker'];
-    if (sm is bool) {
-      await prefs.setBool('profile_smoker', sm);
-    } else if (sm != null) {
-      await prefs.setBool('profile_smoker', sm.toString() == 'true');
-    }
-
-    final alc = decoded['alcohol'];
-    if (alc is bool) {
-      await prefs.setBool('profile_alcohol', alc);
-    } else if (alc != null) {
-      await prefs.setBool('profile_alcohol', alc.toString() == 'true');
+      return SessionStatus.unavailable;
+    } catch (_) {
+      return SessionStatus.unavailable;
     }
   }
 
   static Future<void> refreshProfileFromServer() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('access_token');
-    if (token == null || token.isEmpty) return;
-
-    try {
-      final response = await http
-          .get(
-            Uri.parse('$baseUrl/users/me'),
-            headers: {
-              'accept': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-          )
-          .timeout(const Duration(seconds: 20));
-
-      if (response.statusCode != 200) return;
-
-      final decoded = jsonDecode(response.body);
-      if (decoded is! Map<String, dynamic>) return;
-
-      await persistServerProfileMap(decoded);
-    } catch (_) {}
+    final status = await restoreSession();
+    if (status == SessionStatus.anonymous) sessionExpired.value++;
   }
 
   static Future<Map<String, dynamic>> getSavedProfile() async {
     final prefs = await SharedPreferences.getInstance();
-
     return {
-      'full_name': prefs.getString('profile_full_name') ?? 'Alex Johnson',
-      'age': prefs.getInt('profile_age') ?? 34,
-      'gender': prefs.getString('profile_gender') ?? 'Others',
-      'blood_type': prefs.getString('profile_blood_type') ?? 'O+',
+      'full_name': prefs.getString('profile_full_name') ?? '',
+      'age': prefs.getInt('profile_age'),
+      'gender': prefs.getString('profile_gender'),
+      'blood_type': prefs.getString('profile_blood_type'),
       'smoker': prefs.getBool('profile_smoker') ?? false,
       'alcohol': prefs.getBool('profile_alcohol') ?? false,
     };
   }
 
   static Future<String?> getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('access_token');
+    final token = (await SharedPreferences.getInstance()).getString(
+      'access_token',
+    );
+    return token == null || token.isEmpty ? null : token;
   }
 
-  static Future<void> logout() async {
+  static Future<void> logout({bool expired = false}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('access_token');
     await prefs.remove('token_type');
-  }
-
-  static Future<void> _saveToken(Map<String, dynamic> body) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('access_token', body['access_token']);
-    await prefs.setString('token_type', body['token_type']);
-  }
-
-  static String _extractMessage(http.Response response, String fallback) {
-    try {
-      final body = jsonDecode(response.body);
-      return body['detail']?.toString() ??
-          body['message']?.toString() ??
-          fallback;
-    } catch (_) {
-      return response.body.isNotEmpty ? response.body : fallback;
-    }
+    await prefs.remove('cached_account_email');
+    await _clearProfile(prefs);
+    if (expired) sessionExpired.value++;
   }
 }
