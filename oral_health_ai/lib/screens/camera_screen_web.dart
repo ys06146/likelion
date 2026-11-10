@@ -17,9 +17,10 @@ class CameraScreen extends StatefulWidget {
 class _CameraScreenState extends State<CameraScreen> {
   bool _isCapturing = false;
   bool _isAnalyzing = false;
+  XFile? _selectedImage;
   String _analysisMessage = 'Analyzing your scan...';
 
-  Future<void> _pickAndAnalyze(ImageSource source) async {
+  Future<void> _pickImage(ImageSource source) async {
     if (_isAnalyzing || _isCapturing) return;
 
     setState(() => _isCapturing = true);
@@ -33,13 +34,29 @@ class _CameraScreenState extends State<CameraScreen> {
       setState(() => _isCapturing = false);
 
       if (picked == null) return;
+      setState(() {
+        _selectedImage = picked;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isCapturing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Photo selection failed: $e')),
+      );
+    }
+  }
 
+  Future<void> _analyzeSelectedImage() async {
+    final selectedImage = _selectedImage;
+    if (selectedImage == null || _isAnalyzing || _isCapturing) return;
+
+    try {
       setState(() {
         _isAnalyzing = true;
         _analysisMessage = 'Analyzing your scan...';
       });
 
-      final result = await ScanService.analyzeImage(picked);
+      final result = await ScanService.analyzeImage(selectedImage);
 
       if (!mounted) return;
 
@@ -72,11 +89,10 @@ class _CameraScreenState extends State<CameraScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _isCapturing = false;
         _isAnalyzing = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Capture failed: $e')),
+        SnackBar(content: Text('Analysis failed: $e')),
       );
     }
   }
@@ -156,6 +172,43 @@ class _CameraScreenState extends State<CameraScreen> {
   Widget _buildBottomBar() {
     final disabled = _isAnalyzing || _isCapturing;
 
+    if (_selectedImage != null) {
+      return Container(
+        height: 96,
+        color: Colors.black,
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
+        child: Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: disabled
+                    ? null
+                    : () => _pickImage(ImageSource.gallery),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white54),
+                  minimumSize: const Size.fromHeight(54),
+                ),
+                child: const Text('Choose Another'),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: FilledButton(
+                onPressed: disabled ? null : _analyzeSelectedImage,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF109796),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(54),
+                ),
+                child: const Text('Use This Photo'),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       height: 96,
       color: Colors.black,
@@ -164,8 +217,7 @@ class _CameraScreenState extends State<CameraScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           IconButton(
-            onPressed:
-                disabled ? null : () => _pickAndAnalyze(ImageSource.gallery),
+            onPressed: disabled ? null : () => _pickImage(ImageSource.gallery),
             icon: const Icon(
               Icons.replay_outlined,
               color: Colors.white,
@@ -174,7 +226,7 @@ class _CameraScreenState extends State<CameraScreen> {
             tooltip: 'Choose from gallery',
           ),
           GestureDetector(
-            onTap: disabled ? null : () => _pickAndAnalyze(ImageSource.camera),
+            onTap: disabled ? null : () => _pickImage(ImageSource.camera),
             child: Opacity(
               opacity: disabled ? 0.5 : 1,
               child: Container(
@@ -227,7 +279,12 @@ class _CameraScreenState extends State<CameraScreen> {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      ColoredBox(color: Colors.black),
+                      _selectedImage == null
+                          ? const ColoredBox(color: Colors.black)
+                          : Image.network(
+                              _selectedImage!.path,
+                              fit: BoxFit.contain,
+                            ),
                       Container(
                         decoration: const BoxDecoration(
                           gradient: LinearGradient(
