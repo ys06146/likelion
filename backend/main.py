@@ -3,6 +3,14 @@ import io
 import json
 from datetime import datetime, timedelta
 from typing import List, Optional
+import faulthandler
+faulthandler.enable()  # segfault로 죽을 때 파이썬 traceback을 로그에 남김
+
+# libpq(psycopg)를 tensorflow보다 먼저 로드해야 SSL 심볼 충돌로 서버가 죽지 않음
+try:
+    import psycopg  # noqa: F401
+except ImportError:
+    pass
 
 from fastapi import FastAPI, File, UploadFile, Query, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
