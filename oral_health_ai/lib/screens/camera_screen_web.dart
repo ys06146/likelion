@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import '../services/scan_service.dart';
 import '../widgets/scan/mouth_guide.dart';
-import 'camera_scan_helpers.dart';
-import 'result_screen.dart';
+import 'analyzing_screen.dart';
 
 /// Web: same Oral Scan UI as mobile (guide + shutter) but capture uses
 /// [ImageSource.camera] — avoids importing `camera` (no web implementation).
@@ -16,11 +14,10 @@ class CameraScreen extends StatefulWidget {
 
 class _CameraScreenState extends State<CameraScreen> {
   bool _isCapturing = false;
-  bool _isAnalyzing = false;
-  String _analysisMessage = 'Analyzing your scan...';
+  XFile? _selectedImage;
 
-  Future<void> _pickAndAnalyze(ImageSource source) async {
-    if (_isAnalyzing || _isCapturing) return;
+  Future<void> _pickImage(ImageSource source) async {
+    if (_isCapturing) return;
 
     setState(() => _isCapturing = true);
 
@@ -33,90 +30,32 @@ class _CameraScreenState extends State<CameraScreen> {
       setState(() => _isCapturing = false);
 
       if (picked == null) return;
-
       setState(() {
-        _isAnalyzing = true;
-        _analysisMessage = 'Analyzing your scan...';
+        _selectedImage = picked;
       });
-
-      final result = await ScanService.analyzeImage(picked);
-
-      if (!mounted) return;
-
-      setState(() => _isAnalyzing = false);
-
-      if (result['success'] == true) {
-        final scanResult = scanResultFromAnalyzeMap(result);
-        await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => ResultScreen(result: scanResult)),
-        );
-        return;
-      }
-
-      showDialog<void>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Analysis Failed'),
-          content: Text(
-            result['message']?.toString() ?? 'Failed to analyze scan.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _isCapturing = false;
-        _isAnalyzing = false;
-      });
+      setState(() => _isCapturing = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Capture failed: $e')),
+        SnackBar(content: Text('Photo selection failed: $e')),
       );
     }
   }
 
-  Widget _buildAnalyzingOverlay() {
-    if (!_isAnalyzing) return const SizedBox.shrink();
+  Future<void> _openAnalyzingScreen() async {
+    final selectedImage = _selectedImage;
+    if (selectedImage == null || _isCapturing) return;
 
-    return Positioned.fill(
-      child: Container(
-        color: Colors.black.withValues(alpha: 0.74),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(
-                width: 34,
-                height: 34,
-                child: CircularProgressIndicator(
-                  color: Colors.white,
-                  strokeWidth: 3,
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                _analysisMessage,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AnalyzingScreen(imageFile: selectedImage),
       ),
     );
   }
 
   Widget _buildTopBar() {
-    final busy = _isAnalyzing || _isCapturing;
+    final busy = _isCapturing;
 
     return Container(
       color: Colors.black,
@@ -154,7 +93,44 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Widget _buildBottomBar() {
-    final disabled = _isAnalyzing || _isCapturing;
+    final disabled = _isCapturing;
+
+    if (_selectedImage != null) {
+      return Container(
+        height: 96,
+        color: Colors.black,
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
+        child: Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: disabled
+                    ? null
+                    : () => _pickImage(ImageSource.gallery),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white54),
+                  minimumSize: const Size.fromHeight(54),
+                ),
+                child: const Text('Choose Another'),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: FilledButton(
+                onPressed: disabled ? null : _openAnalyzingScreen,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF109796),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(54),
+                ),
+                child: const Text('Use This Photo'),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Container(
       height: 96,
@@ -164,8 +140,7 @@ class _CameraScreenState extends State<CameraScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           IconButton(
-            onPressed:
-                disabled ? null : () => _pickAndAnalyze(ImageSource.gallery),
+            onPressed: disabled ? null : () => _pickImage(ImageSource.gallery),
             icon: const Icon(
               Icons.replay_outlined,
               color: Colors.white,
@@ -174,7 +149,7 @@ class _CameraScreenState extends State<CameraScreen> {
             tooltip: 'Choose from gallery',
           ),
           GestureDetector(
-            onTap: disabled ? null : () => _pickAndAnalyze(ImageSource.camera),
+            onTap: disabled ? null : () => _pickImage(ImageSource.camera),
             child: Opacity(
               opacity: disabled ? 0.5 : 1,
               child: Container(
@@ -227,7 +202,12 @@ class _CameraScreenState extends State<CameraScreen> {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      ColoredBox(color: Colors.black),
+                      _selectedImage == null
+                          ? const ColoredBox(color: Colors.black)
+                          : Image.network(
+                              _selectedImage!.path,
+                              fit: BoxFit.contain,
+                            ),
                       Container(
                         decoration: const BoxDecoration(
                           gradient: LinearGradient(
@@ -261,7 +241,6 @@ class _CameraScreenState extends State<CameraScreen> {
                     ),
                   ),
                 ),
-                _buildAnalyzingOverlay(),
               ],
             ),
           ),
