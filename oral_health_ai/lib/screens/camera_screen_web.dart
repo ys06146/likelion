@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import '../services/scan_service.dart';
 import '../widgets/scan/mouth_guide.dart';
-import 'camera_scan_helpers.dart';
-import 'result_screen.dart';
+import 'analyzing_screen.dart';
 
 /// Web: same Oral Scan UI as mobile (guide + shutter) but capture uses
 /// [ImageSource.camera] — avoids importing `camera` (no web implementation).
@@ -16,12 +14,10 @@ class CameraScreen extends StatefulWidget {
 
 class _CameraScreenState extends State<CameraScreen> {
   bool _isCapturing = false;
-  bool _isAnalyzing = false;
   XFile? _selectedImage;
-  String _analysisMessage = 'Analyzing your scan...';
 
   Future<void> _pickImage(ImageSource source) async {
-    if (_isAnalyzing || _isCapturing) return;
+    if (_isCapturing) return;
 
     setState(() => _isCapturing = true);
 
@@ -46,93 +42,20 @@ class _CameraScreenState extends State<CameraScreen> {
     }
   }
 
-  Future<void> _analyzeSelectedImage() async {
+  Future<void> _openAnalyzingScreen() async {
     final selectedImage = _selectedImage;
-    if (selectedImage == null || _isAnalyzing || _isCapturing) return;
+    if (selectedImage == null || _isCapturing) return;
 
-    try {
-      setState(() {
-        _isAnalyzing = true;
-        _analysisMessage = 'Analyzing your scan...';
-      });
-
-      final result = await ScanService.analyzeImage(selectedImage);
-
-      if (!mounted) return;
-
-      setState(() => _isAnalyzing = false);
-
-      if (result['success'] == true) {
-        final scanResult = scanResultFromAnalyzeMap(result);
-        await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => ResultScreen(result: scanResult)),
-        );
-        return;
-      }
-
-      showDialog<void>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Analysis Failed'),
-          content: Text(
-            result['message']?.toString() ?? 'Failed to analyze scan.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isAnalyzing = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Analysis failed: $e')),
-      );
-    }
-  }
-
-  Widget _buildAnalyzingOverlay() {
-    if (!_isAnalyzing) return const SizedBox.shrink();
-
-    return Positioned.fill(
-      child: Container(
-        color: Colors.black.withValues(alpha: 0.74),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(
-                width: 34,
-                height: 34,
-                child: CircularProgressIndicator(
-                  color: Colors.white,
-                  strokeWidth: 3,
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                _analysisMessage,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AnalyzingScreen(imageFile: selectedImage),
       ),
     );
   }
 
   Widget _buildTopBar() {
-    final busy = _isAnalyzing || _isCapturing;
+    final busy = _isCapturing;
 
     return Container(
       color: Colors.black,
@@ -170,7 +93,7 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Widget _buildBottomBar() {
-    final disabled = _isAnalyzing || _isCapturing;
+    final disabled = _isCapturing;
 
     if (_selectedImage != null) {
       return Container(
@@ -195,7 +118,7 @@ class _CameraScreenState extends State<CameraScreen> {
             const SizedBox(width: 14),
             Expanded(
               child: FilledButton(
-                onPressed: disabled ? null : _analyzeSelectedImage,
+                onPressed: disabled ? null : _openAnalyzingScreen,
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFF109796),
                   foregroundColor: Colors.white,
@@ -318,7 +241,6 @@ class _CameraScreenState extends State<CameraScreen> {
                     ),
                   ),
                 ),
-                _buildAnalyzingOverlay(),
               ],
             ),
           ),
