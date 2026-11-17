@@ -60,8 +60,19 @@ except Exception as e:
     model = None
 
 # --- 3. Database Configuration ---
-DATABASE_URL = "sqlite:///./oraq_app.db"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# 배포 환경에서는 DATABASE_URL (Neon Postgres) 사용, 없으면 로컬 SQLite
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./oraq_app.db")
+# SQLAlchemy 버전에 따라 기본 드라이버가 달라서 psycopg(v3)로 고정
+for prefix in ("postgres://", "postgresql://"):
+    if DATABASE_URL.startswith(prefix):
+        DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len(prefix):]
+        break
+
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    # Neon free tier는 유휴 시 컴퓨트가 꺼지므로 끊긴 커넥션을 미리 확인
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=300)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
