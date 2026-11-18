@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
@@ -24,7 +25,17 @@ class _GoogleSignInButtonState extends State<GoogleSignInButton> {
         clientId: AuthService.googleClientId,
       );
       if (!mounted) return;
-      final result = await AuthService.loginWithIdToken(idToken: token);
+      final claims =
+          jsonDecode(
+                utf8.decode(
+                  base64Url.decode(base64Url.normalize(token.split('.')[1])),
+                ),
+              )
+              as Map<String, dynamic>;
+      final result = await AuthService.loginWithIdToken(
+        idToken: token,
+        email: claims['email'] as String?,
+      );
       if (!mounted) return;
       if (result['success'] == true) {
         widget.onSuccess();

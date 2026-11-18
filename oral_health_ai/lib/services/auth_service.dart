@@ -74,7 +74,11 @@ class AuthService {
     final body = await ApiClient.request(
       'POST',
       '/auth/google/mobile',
-      body: {'id_token': idToken},
+      body: {
+        'id_token': idToken,
+        'email': ?email,
+        'display_name': ?displayName,
+      },
     );
     await _saveSession(body);
     return body;
