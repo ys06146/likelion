@@ -1,0 +1,12 @@
+.git
+docs
+**/.dart_tool
+**/__pycache__
+**/.env
+**/*.db
+**/*.db-*
+**/venv
+.venv
+oral_health_ai/build/*
+!oral_health_ai/build/web
+backend/tests

@@ -1,0 +1,16 @@
+services:
+  oraq:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    env_file: backend/.env
+    environment:
+      APP_ENV: production
+      DATA_DIR: /data
+      WEB_DIR: /app/web
+      PORT: "8000"
+    volumes:
+      - oraq-data:/data
+    restart: unless-stopped
+volumes:
+  oraq-data:

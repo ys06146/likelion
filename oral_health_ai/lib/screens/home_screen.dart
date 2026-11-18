@@ -2,27 +2,26 @@ import 'package:flutter/material.dart';
 import '../models/scan_item.dart';
 import '../models/scan_result_data.dart';
 import '../services/scan_service.dart';
-import '../widgets/home/compare_past_scans_button.dart';
 import '../widgets/home/home_header.dart';
-import '../widgets/home/recent_scans_card.dart';
-import '../widgets/home/start_scan_button.dart';
 import '../widgets/home/summary_card.dart';
+import '../widgets/home/scan_row.dart';
+import '../widgets/home/start_scan_button.dart';
 import 'profile_screen.dart';
 import 'camera_screen.dart';
 import 'result_detail_screen.dart';
+import 'compare_scans_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
-
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  List<ScanItem> scans = const [];
+  List<ScanItem> scans = [];
   bool isLoading = true;
   bool isOpeningDetail = false;
-
+  String? error;
   @override
   void initState() {
     super.initState();
@@ -32,146 +31,200 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadHistory() async {
     setState(() {
       isLoading = true;
+      error = null;
     });
-
     final result = await ScanService.getHistory();
     if (!mounted) return;
-
-    if (result['success'] == true) {
-      final data = result['data'] as Map<String, dynamic>;
-      final recentScans = (data['recent_scans'] as List<dynamic>? ?? [])
-          .whereType<Map<String, dynamic>>()
-          .map(ScanItem.fromJson)
-          .toList();
-
-      setState(() {
-        scans = recentScans;
-        isLoading = false;
-      });
-      return;
-    }
-
     setState(() {
-      scans = const [];
       isLoading = false;
+      if (result['success'] == true) {
+        final data = result['data'] as Map<String, dynamic>;
+        scans = (data['recent_scans'] as List? ?? [])
+            .whereType<Map<String, dynamic>>()
+            .map(ScanItem.fromJson)
+            .toList();
+      } else {
+        error = result['message']?.toString() ?? 'Could not load scan history.';
+      }
     });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(result['message']?.toString() ?? '히스토리를 불러오지 못했습니다.'),
-      ),
-    );
   }
 
   Future<void> _openScanDetail(ScanItem item) async {
     if (isOpeningDetail) return;
-
-    setState(() {
-      isOpeningDetail = true;
-    });
-
-    final result = await ScanService.getScanDetail(item.scanId);
+    setState(() => isOpeningDetail = true);
+    final response = await ScanService.getScanDetail(item.scanId);
     if (!mounted) return;
-
-    setState(() {
-      isOpeningDetail = false;
-    });
-
-    if (result['success'] == true) {
-      final detail = ScanResultData.fromDetailResponse(
-        result['data'] as Map<String, dynamic>,
-      );
+    setState(() => isOpeningDetail = false);
+    if (response['success'] == true) {
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => ResultDetailScreen(result: detail),
+          builder: (_) => ResultDetailScreen(
+            result: ScanResultData.fromDetailResponse(
+              response['data'] as Map<String, dynamic>,
+            ),
+          ),
         ),
       );
-      return;
+    } else {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(response['message'].toString())));
     }
+  }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(result['message']?.toString() ?? '상세 결과를 불러오지 못했습니다.'),
+  Future<void> _deleteScan(ScanItem item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete scan?'),
+        content: Text(
+          'The saved result from ${item.date} will be permanently deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
+    if (confirmed != true || !mounted) return;
+    final result = await ScanService.deleteScan(item.scanId);
+    if (!mounted) return;
+    if (result['success'] == true) {
+      await _loadHistory();
+    } else {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(result['message'].toString())));
+    }
   }
 
   @override
-  Widget build(BuildContext context) {
-    final latestLabel = scans.isEmpty ? 'No scans yet' : scans.first.label;
-
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(22, 18, 22, 22),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              HomeHeader(
-                onProfileTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ProfileScreen(),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 22),
-              SummaryCard(
-                lastScanResult: latestLabel,
-                totalScans: scans.length,
-              ),
-              const SizedBox(height: 18),
-              ComparePastScansButton(
-                onPressed: () {
-                  // TODO: 비교 화면 연결
-                },
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'RECENT SCANS',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF9B9BA1),
-                  letterSpacing: 0.2,
-                ),
-              ),
-              const SizedBox(height: 10),
-              if (isLoading)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24),
-                  child: Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF0C8A8A),
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: RefreshIndicator(
+            onRefresh: _loadHistory,
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(22, 18, 22, 12),
+                  sliver: SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        HomeHeader(
+                          onProfileTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ProfileScreen(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 22),
+                        SummaryCard(
+                          lastScanResult: scans.isEmpty
+                              ? 'No scans yet'
+                              : scans.first.label,
+                          totalScans: scans.length,
+                        ),
+                        const SizedBox(height: 18),
+                        OutlinedButton.icon(
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => CompareScansScreen(scans: scans),
+                            ),
+                          ),
+                          icon: const Icon(Icons.compare_arrows),
+                          label: const Text('Compare Past Scans'),
+                        ),
+                        const SizedBox(height: 18),
+                        const Text(
+                          'SAVED SCANS',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        if (isOpeningDetail) const LinearProgressIndicator(),
+                        if (isLoading)
+                          const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        if (error != null) ...[
+                          const SizedBox(height: 12),
+                          Text(error!),
+                          TextButton(
+                            onPressed: _loadHistory,
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                        if (!isLoading && error == null && scans.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 24),
+                            child: Text(
+                              'No scans yet. Upload a photo to save your first result.',
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                )
-              else
-                RecentScansCard(
-                  scans: scans,
-                  onTap: _openScanDetail,
                 ),
-              const Spacer(),
-              StartScanButton(
-                onPressed: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const CameraScreen(),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  sliver: SliverList.builder(
+                    itemCount: scans.length,
+                    itemBuilder: (context, index) => Row(
+                      children: [
+                        Expanded(
+                          child: ScanRow(
+                            item: scans[index],
+                            onTap: () => _openScanDetail(scans[index]),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Delete scan ${scans[index].scanId}',
+                          onPressed: () => _deleteScan(scans[index]),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ],
                     ),
-                  );
-                  if (!mounted) return;
-                  _loadHistory();
-                },
-              ),
-            ],
+                  ),
+                ),
+                const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              ],
+            ),
           ),
         ),
       ),
-    );
-  }
+    ),
+    bottomNavigationBar: SafeArea(
+      child: Center(
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: StartScanButton(
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CameraScreen()),
+                );
+                if (mounted) await _loadHistory();
+              },
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }

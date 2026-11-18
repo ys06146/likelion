@@ -3,10 +3,7 @@ import 'package:flutter/material.dart';
 class MouthGuide extends StatelessWidget {
   final bool glowing;
 
-  const MouthGuide({
-    super.key,
-    this.glowing = false,
-  });
+  const MouthGuide({super.key, this.glowing = false});
 
   @override
   Widget build(BuildContext context) {
@@ -18,18 +15,18 @@ class MouthGuide extends StatelessWidget {
         border: Border.all(
           color: glowing
               ? const Color(0xFF00D3E0)
-              : Colors.white.withOpacity(0.35),
+              : Colors.white.withValues(alpha: 0.35),
           width: glowing ? 1.4 : 1.1,
         ),
         boxShadow: glowing
             ? [
                 BoxShadow(
-                  color: const Color(0xFF00D3E0).withOpacity(0.28),
+                  color: const Color(0xFF00D3E0).withValues(alpha: 0.28),
                   blurRadius: 28,
                   spreadRadius: 3,
                 ),
                 BoxShadow(
-                  color: const Color(0xFF00D3E0).withOpacity(0.18),
+                  color: const Color(0xFF00D3E0).withValues(alpha: 0.18),
                   blurRadius: 10,
                   spreadRadius: 1,
                 ),
@@ -64,7 +61,7 @@ class MouthGuide extends StatelessWidget {
       child: Container(
         width: vertical ? 1.2 : 18,
         height: vertical ? 18 : 1.2,
-        color: Colors.white.withOpacity(0.45),
+        color: Colors.white.withValues(alpha: 0.45),
       ),
     );
   }

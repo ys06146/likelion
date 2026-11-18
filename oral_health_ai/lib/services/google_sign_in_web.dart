@@ -1,47 +1,19 @@
+import 'dart:async';
 import 'dart:math';
 import 'dart:js_interop';
-
 import 'package:web/web.dart' as web;
-
-typedef GoogleCredentialCallback = void Function(String idToken);
-
-GoogleCredentialCallback? _onCredential;
-bool _listenerAdded = false;
+import 'api_client.dart';
+import 'google_oauth_validation.dart';
 
 extension type _MessageData._(JSObject _) implements JSObject {
   external String? get type;
   @JS('id_token')
   external String? get idToken;
+  external String? get state;
+  external String? get error;
 }
 
-void initGoogleSignInWeb({
-  required String clientId,
-  required GoogleCredentialCallback onCredential,
-}) {
-  _onCredential = onCredential;
-
-  if (_listenerAdded) return;
-
-  web.window.addEventListener(
-    'message',
-    (web.Event e) {
-      try {
-        final event = e as web.MessageEvent;
-        final data = event.data;
-        if (data == null) return;
-
-        final msg = data as _MessageData;
-        if (msg.type == 'google_id_token' && msg.idToken != null) {
-          _onCredential?.call(msg.idToken!);
-        }
-      } catch (_) {}
-    }.toJS,
-  );
-
-  _listenerAdded = true;
-}
-
-String _generateNonce() {
+String _randomToken() {
   final random = Random.secure();
   return List.generate(
     32,
@@ -49,22 +21,97 @@ String _generateNonce() {
   ).join();
 }
 
-void triggerGoogleSignIn({required String clientId}) {
+Future<String> signInWithGoogle({required String clientId}) async {
   final origin = web.window.location.origin;
-
-  final base =
-      web.document.querySelector('base')?.getAttribute('href') ?? '/';
-  final redirectUri = '$origin$base';
-
-  final nonce = _generateNonce();
-
-  final url = 'https://accounts.google.com/o/oauth2/v2/auth?'
-      'client_id=${Uri.encodeComponent(clientId)}'
-      '&redirect_uri=${Uri.encodeComponent(redirectUri)}'
-      '&response_type=id_token'
-      '&scope=openid%20email%20profile'
-      '&nonce=$nonce'
-      '&prompt=select_account';
-
-  web.window.open(url, 'google_signin', 'width=500,height=600');
+  final base = web.document.querySelector('base')?.getAttribute('href') ?? '/';
+  final redirectUri = Uri.parse(
+    web.window.location.href,
+  ).resolve(base).toString();
+  final nonce = _randomToken();
+  final state = _randomToken();
+  final completer = Completer<String>();
+  web.Window? popup;
+  final listener = ((web.Event e) {
+    final event = e as web.MessageEvent;
+    if (event.origin != origin ||
+        event.source != popup ||
+        completer.isCompleted) {
+      return;
+    }
+    try {
+      final data = event.data as _MessageData;
+      if (data.type != 'google_id_token' || data.state != state) return;
+      if (data.error != null) {
+        completer.completeError(
+          const ApiException('Google sign-in was cancelled or denied.'),
+        );
+      } else if (data.idToken != null &&
+          matchesGoogleResponse(
+            token: data.idToken!,
+            state: data.state!,
+            expectedState: state,
+            nonce: nonce,
+            clientId: clientId,
+            now: DateTime.now(),
+          )) {
+        completer.complete(data.idToken!);
+      } else {
+        completer.completeError(
+          const ApiException(
+            'Google sign-in could not be verified. Please try again.',
+          ),
+        );
+      }
+    } catch (_) {
+      if (!completer.isCompleted) {
+        completer.completeError(const ApiException('Invalid Google response.'));
+      }
+    }
+  }).toJS;
+  web.window.addEventListener('message', listener);
+  final url = Uri.https('accounts.google.com', '/o/oauth2/v2/auth', {
+    'client_id': clientId,
+    'redirect_uri': redirectUri,
+    'response_type': 'id_token',
+    'scope': 'openid email profile',
+    'nonce': nonce,
+    'state': state,
+    'prompt': 'select_account',
+  });
+  Timer? closedTimer;
+  try {
+    popup = web.window.open(
+      url.toString(),
+      'oraq_google_signin',
+      'width=500,height=600',
+    );
+    if (popup == null) {
+      throw const ApiException(
+        'Allow pop-ups for this site to sign in with Google.',
+      );
+    }
+    closedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      try {
+        if (popup!.closed && !completer.isCompleted) {
+          completer.completeError(
+            const ApiException('Google sign-in was cancelled.'),
+          );
+        }
+      } catch (_) {
+        /* Cross-origin popup access can be restricted until it returns. */
+      }
+    });
+    return await completer.future.timeout(
+      const Duration(minutes: 2),
+      onTimeout: () => throw const ApiException(
+        'Google sign-in timed out. Please try again.',
+      ),
+    );
+  } finally {
+    closedTimer?.cancel();
+    web.window.removeEventListener('message', listener);
+    try {
+      popup?.close();
+    } catch (_) {}
+  }
 }

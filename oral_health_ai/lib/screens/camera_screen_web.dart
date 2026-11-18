@@ -1,273 +1,192 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import '../services/api_client.dart';
 import '../services/scan_service.dart';
-import '../widgets/scan/mouth_guide.dart';
 import 'camera_scan_helpers.dart';
 import 'result_screen.dart';
 
-/// Web: same Oral Scan UI as mobile (guide + shutter) but capture uses
-/// [ImageSource.camera] — avoids importing `camera` (no web implementation).
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
-
   @override
   State<CameraScreen> createState() => _CameraScreenState();
 }
 
 class _CameraScreenState extends State<CameraScreen> {
-  bool _isCapturing = false;
+  XFile? _file;
+  Uint8List? _preview;
+  bool _isPicking = false;
   bool _isAnalyzing = false;
-  String _analysisMessage = 'Analyzing your scan...';
+  String? _error;
 
-  Future<void> _pickAndAnalyze(ImageSource source) async {
-    if (_isAnalyzing || _isCapturing) return;
-
-    setState(() => _isCapturing = true);
-
+  Future<void> _pick(ImageSource source) async {
+    if (_isPicking || _isAnalyzing) return;
+    setState(() {
+      _isPicking = true;
+      _error = null;
+    });
     try {
-      final picker = ImagePicker();
-      final picked = await picker.pickImage(source: source, imageQuality: 85);
-
-      if (!mounted) return;
-
-      setState(() => _isCapturing = false);
-
-      if (picked == null) return;
-
-      setState(() {
-        _isAnalyzing = true;
-        _analysisMessage = 'Analyzing your scan...';
-      });
-
-      final result = await ScanService.analyzeImage(picked);
-
-      if (!mounted) return;
-
-      setState(() => _isAnalyzing = false);
-
-      if (result['success'] == true) {
-        final scanResult = scanResultFromAnalyzeMap(result);
-        await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => ResultScreen(result: scanResult)),
-        );
-        return;
-      }
-
-      showDialog<void>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Analysis Failed'),
-          content: Text(
-            result['message']?.toString() ?? 'Failed to analyze scan.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
+      final file = await ImagePicker().pickImage(
+        source: source,
+        imageQuality: 85,
       );
+      if (file == null) return;
+      if (await file.length() > ApiClient.maxImageBytes) {
+        throw const ApiException('Choose an image smaller than 10 MB.');
+      }
+      final bytes = await file.readAsBytes();
+      if (mounted) {
+        setState(() {
+          _file = file;
+          _preview = bytes;
+        });
+      }
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isCapturing = false;
-        _isAnalyzing = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Capture failed: $e')),
+      if (mounted) {
+        setState(
+          () => _error = e is ApiException
+              ? e.message
+              : 'Could not open the image. Please choose another file.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isPicking = false);
+    }
+  }
+
+  Future<void> _analyze() async {
+    final file = _file;
+    if (_isPicking || _isAnalyzing || file == null) return;
+    setState(() {
+      _isAnalyzing = true;
+      _error = null;
+    });
+    final result = await ScanService.analyzeImage(file);
+    if (!mounted) return;
+    final succeeded = result['success'] == true;
+    setState(() {
+      _isAnalyzing = false;
+      if (succeeded) {
+        _file = null;
+        _preview = null;
+      } else {
+        _error =
+            result['message']?.toString() ??
+            'Analysis failed. Please try again.';
+      }
+    });
+    if (succeeded) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              ResultScreen(result: scanResultFromAnalyzeMap(result)),
+        ),
       );
     }
   }
 
-  Widget _buildAnalyzingOverlay() {
-    if (!_isAnalyzing) return const SizedBox.shrink();
-
-    return Positioned.fill(
-      child: Container(
-        color: Colors.black.withValues(alpha: 0.74),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(
-                width: 34,
-                height: 34,
-                child: CircularProgressIndicator(
-                  color: Colors.white,
-                  strokeWidth: 3,
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                _analysisMessage,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTopBar() {
-    final busy = _isAnalyzing || _isCapturing;
-
-    return Container(
-      color: Colors.black,
-      padding: const EdgeInsets.only(top: 52, left: 18, right: 18, bottom: 14),
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: busy ? null : () => Navigator.pop(context),
-            icon: const Icon(Icons.close, color: Colors.white, size: 22),
-          ),
-          const Expanded(
-            child: Center(
-              child: Text(
-                'Oral Scan',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
-          IconButton(
-            onPressed: null,
-            icon: Icon(
-              Icons.flash_off,
-              color: Colors.white.withValues(alpha: 0.45),
-              size: 20,
-            ),
-            tooltip: 'Flash not available in browser',
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBottomBar() {
-    final disabled = _isAnalyzing || _isCapturing;
-
-    return Container(
-      height: 96,
-      color: Colors.black,
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          IconButton(
-            onPressed:
-                disabled ? null : () => _pickAndAnalyze(ImageSource.gallery),
-            icon: const Icon(
-              Icons.replay_outlined,
-              color: Colors.white,
-              size: 24,
-            ),
-            tooltip: 'Choose from gallery',
-          ),
-          GestureDetector(
-            onTap: disabled ? null : () => _pickAndAnalyze(ImageSource.camera),
-            child: Opacity(
-              opacity: disabled ? 0.5 : 1,
-              child: Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 3),
-                ),
-                child: Center(
-                  child: Container(
-                    width: 52,
-                    height: 52,
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.25),
-                width: 1.2,
-              ),
-              borderRadius: BorderRadius.circular(7),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Column(
-        children: [
-          _buildTopBar(),
-          Expanded(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      ColoredBox(color: Colors.black),
-                      Container(
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Color.fromRGBO(0, 0, 0, 0.32),
-                              Color.fromRGBO(0, 0, 0, 0.08),
-                              Color.fromRGBO(0, 0, 0, 0.32),
-                            ],
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_isAnalyzing,
+    child: Scaffold(
+      appBar: AppBar(
+        title: const Text('New scan'),
+        automaticallyImplyLeading: !_isAnalyzing,
+      ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 640),
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: _isAnalyzing
+                ? const [
+                    LinearProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Analyzing your photo…', textAlign: TextAlign.center),
+                  ]
+                : [
+                    Text(
+                      'Choose a clear photo',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Use a well-lit photo of your teeth. JPEG, PNG or WebP, up to 10 MB and 20 megapixels.',
+                    ),
+                    const SizedBox(height: 20),
+                    if (_preview != null)
+                      Image.memory(
+                        _preview!,
+                        height: 240,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, error, stack) => const SizedBox(
+                          height: 120,
+                          child: Center(
+                            child: Text(
+                              'This image cannot be previewed. Choose a JPEG, PNG or WebP file.',
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      const SizedBox(
+                        height: 160,
+                        child: Center(
+                          child: Icon(
+                            Icons.add_photo_alternate_outlined,
+                            size: 64,
                           ),
                         ),
                       ),
+                    const SizedBox(height: 16),
+                    if (_error != null) ...[
+                      Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                     ],
-                  ),
-                ),
-                Center(
-                  child: Transform.translate(
-                    offset: const Offset(0, -40),
-                    child: const MouthGuide(),
-                  ),
-                ),
-                Align(
-                  alignment: const Alignment(0, 0.72),
-                  child: Text(
-                    'Position your mouth within the guide',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.42),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w400,
+                    OutlinedButton.icon(
+                      onPressed: _isPicking
+                          ? null
+                          : () => _pick(ImageSource.gallery),
+                      icon: const Icon(Icons.photo_library_outlined),
+                      label: Text(
+                        _file == null ? 'Choose photo' : 'Choose Another',
+                      ),
                     ),
-                  ),
-                ),
-                _buildAnalyzingOverlay(),
-              ],
-            ),
+                    if (_file != null)
+                      FilledButton(
+                        onPressed: _isPicking ? null : _analyze,
+                        child: const Text('Use This Photo'),
+                      ),
+                    TextButton.icon(
+                      onPressed: _isPicking
+                          ? null
+                          : () => _pick(ImageSource.camera),
+                      icon: const Icon(Icons.camera_alt_outlined),
+                      label: const Text('Take photo'),
+                    ),
+                    const Text(
+                      'Camera availability depends on your browser and device. You can always choose a saved photo.',
+                      textAlign: TextAlign.center,
+                    ),
+                    if (_isPicking)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Results are experimental image-level scores, not a medical diagnosis.',
+                    ),
+                  ],
           ),
-          _buildBottomBar(),
-        ],
+        ),
       ),
-    );
-  }
+    ),
+  );
 }

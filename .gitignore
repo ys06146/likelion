@@ -4,6 +4,9 @@ backend/__pycache__/
 backend/*.pyc
 backend/oraq_app.db
 backend/.env
+**/__pycache__/
+.venv/
+backend/data/
 
 # Flutter
 oral_health_ai/.dart_tool/
