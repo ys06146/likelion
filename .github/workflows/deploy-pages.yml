@@ -1,0 +1,58 @@
+name: Deploy web to GitHub Pages
+on:
+  workflow_run:
+    workflows: ["Verify web application"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      API_BASE_URL: ${{ vars.API_BASE_URL || 'https://jyun45-oraq-backend.hf.space' }}
+      GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID || '360152998799-iud4ufqjuqb5ak9jjl44dl4pm8iki0je.apps.googleusercontent.com' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.4'
+          cache: true
+      - uses: actions/configure-pages@v5
+      - run: flutter pub get
+        working-directory: oral_health_ai
+      - name: Build for the production API and Pages path
+        working-directory: oral_health_ai
+        run: >-
+          flutter build web --release --base-href /likelion/
+          --dart-define=API_BASE_URL="$API_BASE_URL"
+          --dart-define=GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID"
+      - name: Record the deployed version
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          version = {"commit": subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip(),
+                     "api_base_url": os.environ["API_BASE_URL"]}
+          Path("oral_health_ai/build/web/version.json").write_text(json.dumps(version))
+          PY
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: oral_health_ai/build/web
+      - uses: actions/deploy-pages@v4
+        id: deployment

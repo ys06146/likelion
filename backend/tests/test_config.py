@@ -33,3 +33,14 @@ class ConfigTests(unittest.TestCase):
     def test_wildcard_cors_is_rejected(self):
         result = self.run_config(SECRET_KEY="x" * 48, CORS_ORIGINS="*")
         self.assertNotEqual(result.returncode, 0)
+
+    def test_neon_urls_use_psycopg(self):
+        for prefix in ("postgres://", "postgresql://"):
+            with self.subTest(prefix=prefix):
+                env = dict(os.environ, PYTHONPATH=str(BACKEND),
+                    PYTHON_DOTENV_DISABLED="1", SECRET_KEY="x" * 48,
+                    DATABASE_URL=prefix + "example/db?sslmode=require")
+                result = subprocess.run([sys.executable, "-c",
+                    "import config; assert config.DATABASE_URL == 'postgresql+psycopg://example/db?sslmode=require'"],
+                    env=env, capture_output=True, text=True, timeout=15)
+                self.assertEqual(result.returncode, 0, result.stderr)

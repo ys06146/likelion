@@ -58,7 +58,7 @@ cd oral_health_ai
 flutter build web --release --base-href /likelion/ --dart-define=API_BASE_URL=https://YOUR-API-HOST
 ```
 
-Publish `build/web` through Pages. Set backend `CORS_ORIGINS=https://ys06146.github.io` (origin only, no path). A non-local build without `API_BASE_URL` calls its own origin; do not publish that build on Pages. Tracked `docs/` remains the previous published build until the production backend is ready. CI uploads a same-origin artifact and does not auto-deploy.
+After the main branch passes "Verify web application", "Deploy web to GitHub Pages" builds for `/likelion/` and publishes the website. The deployment uses the existing Hugging Face API by default. Repository variables `API_BASE_URL` and `GOOGLE_CLIENT_ID` can override the public build settings. Set backend `CORS_ORIGINS=https://ys06146.github.io` (origin only, no path). The site's `version.json` records the deployed commit and API URL. The tracked `docs/` folder contains a historical build.
 
 ## Optional Google sign-in
 

@@ -16,6 +16,11 @@ def resolve_path(value, base=BASE_DIR):
 
 MODEL_PATH = resolve_path(os.getenv("MODEL_PATH", "model_exp03b_saved"))
 database_url = os.getenv("DATABASE_URL")
+if database_url:
+    for prefix in ("postgres://", "postgresql://"):
+        if database_url.startswith(prefix):
+            database_url = "postgresql+psycopg://" + database_url[len(prefix):]
+            break
 data_dir = os.getenv("DATA_DIR")
 if PRODUCTION and not database_url and not data_dir:
     raise RuntimeError("Production requires DATABASE_URL or DATA_DIR on persistent storage.")

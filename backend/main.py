@@ -6,6 +6,15 @@ import warnings
 from threading import Lock
 from datetime import datetime, timedelta
 from typing import List, Optional
+import faulthandler
+
+faulthandler.enable()
+
+# Load system libpq before TensorFlow to preserve the production SSL fix.
+try:
+    import psycopg
+except ImportError:
+    pass
 
 from fastapi import FastAPI, File, UploadFile, Query, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -70,6 +79,7 @@ engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
     pool_pre_ping=True,
+    pool_recycle=300,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
